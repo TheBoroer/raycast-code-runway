@@ -45,6 +45,21 @@ export class ProjectDirectoryStorage {
     }
   }
 
+  static async updateDirectory(originalPath: string, updated: ProjectDirectory): Promise<void> {
+    const directories = await this.getDirectories();
+    const index = directories.findIndex((d) => d.path === originalPath);
+    if (index === -1) {
+      throw new Error("Directory not found");
+    }
+
+    if (updated.path !== originalPath && directories.some((d) => d.path === updated.path)) {
+      throw new Error("Another configured directory already uses this path");
+    }
+
+    directories[index] = updated;
+    await this.saveDirectories(directories);
+  }
+
   static async removeDirectory(path: string): Promise<void> {
     const directories = await this.getDirectories();
     const filtered = directories.filter((d) => d.path !== path);

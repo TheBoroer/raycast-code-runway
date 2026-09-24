@@ -1,6 +1,6 @@
 import { ActionPanel, Action, List, showToast, Toast, Icon, Color, Form, useNavigation, showHUD } from "@raycast/api";
 import { useState, useEffect } from "react";
-import { DisplayProjectDirectory } from "./types";
+import { DisplayProjectDirectory, ProjectDirectory } from "./types";
 import { ProjectDirectoryStorage } from "./utils/storage";
 import { scanProjectsInDirectory } from "./utils/projectScanner";
 
@@ -182,6 +182,12 @@ export default function DirectorySettings() {
                     </ActionPanel.Section>
 
                     <ActionPanel.Section title="Management">
+                      <Action.Push
+                        title="Edit Directory"
+                        icon={Icon.Pencil}
+                        target={<EditDirectoryForm directory={directory} onSaved={loadDirectories} />}
+                        shortcut={{ modifiers: ["cmd"], key: "e" }}
+                      />
                       <Action
                         title="Refresh"
                         icon={Icon.ArrowClockwise}
@@ -210,6 +216,109 @@ export default function DirectorySettings() {
         </>
       )}
     </List>
+  );
+}
+
+function getFolderName(path: string): string {
+  return path.split("/").pop() || path;
+}
+
+function buildDisplayName(namePrefix: string, path: string): string {
+  const folderName = getFolderName(path);
+  return namePrefix.trim() ? `${namePrefix.trim()}-${folderName}` : folderName;
+}
+
+// Names are stored as "<prefix>-<folder>", so recover the prefix from the saved name
+function extractNamePrefix(name: string, path: string): string {
+  const folderName = getFolderName(path);
+  if (name === folderName) return "";
+  const suffix = `-${folderName}`;
+  return name.endsWith(suffix) ? name.slice(0, -suffix.length) : "";
+}
+
+interface EditDirectoryFormProps {
+  directory: ProjectDirectory;
+  onSaved: () => void;
+}
+
+function EditDirectoryForm({ directory, onSaved }: EditDirectoryFormProps) {
+  const { pop } = useNavigation();
+  const [namePrefix, setNamePrefix] = useState(extractNamePrefix(directory.name, directory.path));
+  const [selectedPaths, setSelectedPaths] = useState<string[]>([directory.path]);
+  const [recursive, setRecursive] = useState(!!directory.recursive);
+  const previewPath = selectedPaths[0]?.trim() || directory.path;
+
+  async function handleSubmit() {
+    const path = selectedPaths[0]?.trim();
+    if (!path) {
+      showToast({
+        style: Toast.Style.Failure,
+        title: "Please select a directory",
+      });
+      return;
+    }
+
+    try {
+      await ProjectDirectoryStorage.updateDirectory(directory.path, {
+        path,
+        name: buildDisplayName(namePrefix, path),
+        enabled: directory.enabled,
+        recursive,
+      });
+
+      showHUD("Directory updated");
+      onSaved();
+      pop();
+    } catch (error) {
+      showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to Update",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
+  return (
+    <Form
+      navigationTitle="Edit Project Directory"
+      actions={
+        <ActionPanel>
+          <Action.SubmitForm title="Save Changes" onSubmit={handleSubmit} />
+        </ActionPanel>
+      }
+    >
+      <Form.Description text="Change the directory location, display name prefix, or scan mode." />
+
+      <Form.FilePicker
+        id="directoryPath"
+        title="Project Directory"
+        allowMultipleSelection={false}
+        canChooseDirectories={true}
+        canChooseFiles={false}
+        value={selectedPaths}
+        onChange={setSelectedPaths}
+      />
+
+      <Form.TextField
+        id="namePrefix"
+        title="Display Name Prefix"
+        placeholder="Work Projects"
+        value={namePrefix}
+        onChange={setNamePrefix}
+        info="An optional prefix to distinguish directories from different sources."
+      />
+
+      <Form.Checkbox
+        id="recursive"
+        title="Recursive Scan"
+        label="Scan all subdirectories for projects"
+        value={recursive}
+        onChange={setRecursive}
+        info="When enabled, all levels of subdirectories will be scanned, which may increase scan time."
+      />
+
+      <Form.Description text={`Display name: ${buildDisplayName(namePrefix, previewPath)}`} />
+    </Form>
   );
 }
 
@@ -247,12 +356,9 @@ function AddDirectoryForm({ onAdded }: AddDirectoryFormProps) {
         const projects = await scanProjectsInDirectory(path, recursive, path);
         totalProjects += projects.length;
 
-        const folderName = path.split("/").pop() || path;
-        const displayName = namePrefix.trim() ? `${namePrefix.trim()}-${folderName}` : folderName;
-
         await ProjectDirectoryStorage.addDirectory({
           path: path.trim(),
-          name: displayName,
+          name: buildDisplayName(namePrefix, path),
           enabled: true,
           recursive,
         });

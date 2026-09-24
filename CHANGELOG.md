@@ -7,6 +7,7 @@
 - cmux terminal support with CLI-based launcher (split panes, tabs, workspaces)
 - OpenAI Codex desktop app as an editor option
 - Auto-detect newly installed editors and add recommended templates on next launch
+- Edit existing project directories (display name, path, recursive scan) from Project Directory Settings
 
 ### Changed
 
