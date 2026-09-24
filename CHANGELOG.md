@@ -14,6 +14,10 @@
 
 - Editor auto-sync now runs on every load instead of only once, so new editors are picked up without manual configuration
 
+### Fixed
+
+- Deleted editor templates (e.g. Xcode, Android Studio) no longer reappear on the next load. Editing a template to use a different editor no longer brings the old one back either. Use "Add Recommended Editor Templates" to restore them
+
 ## [1.1.0] - 2025-03-19
 
 ### Added

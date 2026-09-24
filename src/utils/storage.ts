@@ -7,6 +7,7 @@ const STORAGE_KEYS = {
   PROJECT_DIRECTORIES: "project_directories",
   PROJECT_TEMPLATES: "project_templates",
   RECOMMENDED_EDITOR_TEMPLATES_SYNCED: "recommended_editor_templates_synced",
+  DISMISSED_EDITOR_TYPES: "dismissed_editor_types",
 } as const;
 
 type StoredTemplate = Partial<WarpTemplate> & {
@@ -155,7 +156,34 @@ export class ProjectTemplateStorage {
     return { templates: migratedTemplates, changed };
   }
 
-  private static buildRecommendedEditorTemplates(existingTemplates: WarpTemplate[]): WarpTemplate[] {
+  private static async getDismissedEditorTypes(): Promise<Set<string>> {
+    const stored = await LocalStorage.getItem<string>(STORAGE_KEYS.DISMISSED_EDITOR_TYPES);
+    if (!stored) return new Set();
+
+    try {
+      const parsed: unknown = JSON.parse(stored);
+      if (!Array.isArray(parsed)) return new Set();
+      return new Set(parsed.filter((item): item is string => typeof item === "string"));
+    } catch {
+      return new Set();
+    }
+  }
+
+  private static async saveDismissedEditorTypes(editorTypes: Set<string>): Promise<void> {
+    await LocalStorage.setItem(STORAGE_KEYS.DISMISSED_EDITOR_TYPES, JSON.stringify([...editorTypes]));
+  }
+
+  /** Stop auto-sync from re-adding an editor the user moved away from on purpose. */
+  private static async dismissEditorType(editorType: string): Promise<void> {
+    const dismissedEditorTypes = await this.getDismissedEditorTypes();
+    dismissedEditorTypes.add(editorType);
+    await this.saveDismissedEditorTypes(dismissedEditorTypes);
+  }
+
+  private static buildRecommendedEditorTemplates(
+    existingTemplates: WarpTemplate[],
+    dismissedEditorTypes: Set<string> = new Set(),
+  ): WarpTemplate[] {
     const existingEditorTypes = new Set(
       existingTemplates
         .filter((template) => template.launcherKind === "editor" && template.editorType)
@@ -163,7 +191,7 @@ export class ProjectTemplateStorage {
     );
 
     return getAvailableEditors()
-      .filter((editor) => !existingEditorTypes.has(editor.editorType))
+      .filter((editor) => !existingEditorTypes.has(editor.editorType) && !dismissedEditorTypes.has(editor.editorType))
       .map((editor) => ({
         id: `recommended-editor:${editor.editorType}`,
         name: `Open in ${editor.title}`,
@@ -178,7 +206,9 @@ export class ProjectTemplateStorage {
   }
 
   private static async maybeAutoSyncRecommendedEditorTemplates(templates: WarpTemplate[]): Promise<WarpTemplate[]> {
-    const recommendedTemplates = this.buildRecommendedEditorTemplates(templates);
+    // Skip editors the user deleted on purpose so they do not reappear on every load.
+    const dismissedEditorTypes = await this.getDismissedEditorTypes();
+    const recommendedTemplates = this.buildRecommendedEditorTemplates(templates, dismissedEditorTypes);
 
     if (recommendedTemplates.length === 0) {
       return templates;
@@ -259,6 +289,11 @@ export class ProjectTemplateStorage {
         console.log("Old hasScriptContent:", Boolean(templates[existingIndex].scriptContent?.trim()));
         console.log("New hasScriptContent:", Boolean(template.scriptContent?.trim()));
       }
+      const previous = templates[existingIndex];
+      const editorChanged = template.launcherKind !== "editor" || template.editorType !== previous.editorType;
+      if (previous.launcherKind === "editor" && previous.editorType && editorChanged) {
+        await this.dismissEditorType(previous.editorType);
+      }
       templates[existingIndex] = template;
     } else {
       if (DEBUG) console.log("Adding new template");
@@ -283,12 +318,21 @@ export class ProjectTemplateStorage {
 
   static async removeTemplate(id: string): Promise<void> {
     const templates = await this.getTemplates();
+    const removed = templates.find((t) => t.id === id);
+
+    if (removed?.launcherKind === "editor" && removed.editorType) {
+      await this.dismissEditorType(removed.editorType);
+    }
+
     const filtered = templates.filter((t) => t.id !== id);
     await this.saveTemplates(filtered);
   }
 
   static async syncRecommendedEditorTemplates(): Promise<{ addedCount: number; totalCount: number }> {
     const templates = await this.getTemplates();
+    // Explicit request to restore recommended editors, so forget previous dismissals.
+    // Cleared after loading so the added count includes the restored editors.
+    await LocalStorage.removeItem(STORAGE_KEYS.DISMISSED_EDITOR_TYPES);
     const recommendedTemplates = this.buildRecommendedEditorTemplates(templates);
 
     if (recommendedTemplates.length === 0) {
