@@ -8,6 +8,7 @@
 - OpenAI Codex desktop app as an editor option
 - Auto-detect newly installed editors and add recommended templates on next launch
 - Edit existing project directories (display name, path, recursive scan) from Project Directory Settings
+- Find `.code-workspace` files, including ones inside projects, and list them in search results. VS Code based editors open the workspace, other launchers use its folder
 
 ### Changed
 

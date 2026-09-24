@@ -25,6 +25,15 @@ export type AvailableEditor = {
   title: string;
 };
 
+const WORKSPACE_EDITOR_FAMILIES = new Set([
+  "cursor",
+  "vscode",
+  "vscode-insiders",
+  "vscodium",
+  "windsurf",
+  "antigravity",
+]);
+
 const EDITOR_CANDIDATES: EditorCandidate[] = [
   {
     aliases: ["cursor"],
@@ -361,5 +370,8 @@ export async function launchEditorProject(project: Project, template: WarpTempla
     throw new Error(`Editor not found: ${getEditorDisplayName(template.editorType)}`);
   }
 
-  await execFileAsync("open", ["-a", editor.bundlePath, project.path]);
+  // Only VS Code based editors understand .code-workspace files, the rest get the containing folder
+  const target =
+    project.workspaceFile && WORKSPACE_EDITOR_FAMILIES.has(editor.family) ? project.workspaceFile : project.path;
+  await execFileAsync("open", ["-a", editor.bundlePath, target]);
 }

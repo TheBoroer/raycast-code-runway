@@ -12,7 +12,7 @@ import {
 import { useState, useEffect } from "react";
 import { useCachedPromise } from "@raycast/utils";
 import { Project, WarpTemplate } from "./types";
-import { scanAllProjects, searchProjects } from "./utils/projectScanner";
+import { getProjectId, scanAllProjects, searchProjects } from "./utils/projectScanner";
 import { ProjectDirectoryStorage, ProjectTemplateStorage } from "./utils/storage";
 import { launchWarpConfig, launchProjectSimple, checkWarpInstalled, debugWarpEnvironment } from "./utils/warpLauncher";
 import {
@@ -185,7 +185,7 @@ export default function SearchProjects() {
     const lastLaunchSnapshot = lastLaunch;
 
     // Prevent accidental double-launch (e.g. default action firing after a selected action).
-    if (lastLaunchSnapshot?.projectPath === project.path && now - lastLaunchSnapshot.at < LAUNCH_DEDUP_MS) {
+    if (lastLaunchSnapshot?.projectPath === getProjectId(project) && now - lastLaunchSnapshot.at < LAUNCH_DEDUP_MS) {
       if (DEBUG) console.log("Skipping duplicate launch due to recent launch");
       return;
     }
@@ -278,7 +278,7 @@ export default function SearchProjects() {
     }
 
     try {
-      lastLaunch = { projectPath: project.path, at: now };
+      lastLaunch = { projectPath: getProjectId(project), at: now };
       if (template) {
         // Dispatch to the launcher-specific implementation.
         if (template.launcherKind === "editor") {
@@ -325,6 +325,8 @@ export default function SearchProjects() {
   }
 
   function getProjectIcon(project: Project): Icon {
+    if (project.workspaceFile) return Icon.AppWindowGrid2x2;
+
     const projectName = project.name.toLowerCase();
 
     if (projectName.includes("react") || projectName.includes("next")) return Icon.Globe;
@@ -364,11 +366,12 @@ export default function SearchProjects() {
       ) : (
         filteredProjects.map((project) => (
           <List.Item
-            key={project.path}
+            key={getProjectId(project)}
             title={project.name}
-            subtitle={project.path}
+            subtitle={getProjectId(project)}
             icon={getProjectIcon(project)}
             accessories={[
+              ...(project.workspaceFile ? [{ tag: "Workspace" }] : []),
               {
                 text: project.parentDirectory.split("/").pop(),
                 icon: Icon.Folder,
@@ -403,8 +406,8 @@ export default function SearchProjects() {
                 )}
 
                 <ActionPanel.Section title="Management">
-                  <Action.ShowInFinder title="Show in Finder" path={project.path} icon={Icon.Finder} />
-                  <Action.CopyToClipboard title="Copy Path" content={project.path} icon={Icon.Clipboard} />
+                  <Action.ShowInFinder title="Show in Finder" path={getProjectId(project)} icon={Icon.Finder} />
+                  <Action.CopyToClipboard title="Copy Path" content={getProjectId(project)} icon={Icon.Clipboard} />
                   <Action
                     title="Refresh Project List"
                     icon={Icon.ArrowClockwise}

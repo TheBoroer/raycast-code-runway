@@ -2,11 +2,13 @@ import { readdir, stat } from "fs/promises";
 import { join } from "path";
 import { Project, ProjectDirectory } from "../types";
 
+const WORKSPACE_EXTENSION = ".code-workspace";
+
 /**
  * Determines if a directory is a project directory.
- * This is done by checking for the presence of common project indicator files.
+ * This is done by checking its file listing for common project indicator files.
  */
-async function isProjectDirectory(dirPath: string): Promise<boolean> {
+function isProjectDirectory(files: string[]): boolean {
   const projectIndicators = [
     "package.json",
     "Cargo.toml",
@@ -23,12 +25,28 @@ async function isProjectDirectory(dirPath: string): Promise<boolean> {
     "Dockerfile",
   ];
 
-  try {
-    const files = await readdir(dirPath);
-    return projectIndicators.some((indicator) => files.includes(indicator));
-  } catch {
-    return false;
-  }
+  return projectIndicators.some((indicator) => files.includes(indicator));
+}
+
+/**
+ * Builds project entries for the .code-workspace files in a directory listing.
+ */
+function findWorkspaceProjects(dirPath: string, files: string[], parentDirectory: string): Project[] {
+  return files
+    .filter((file) => !file.startsWith(".") && file.endsWith(WORKSPACE_EXTENSION))
+    .map((file) => ({
+      name: file.slice(0, -WORKSPACE_EXTENSION.length),
+      path: dirPath,
+      parentDirectory,
+      workspaceFile: join(dirPath, file),
+    }));
+}
+
+/**
+ * Unique identifier for a project. Workspace entries share their folder's path, so use the file instead.
+ */
+export function getProjectId(project: Project): string {
+  return project.workspaceFile ?? project.path;
 }
 
 /**
@@ -50,6 +68,11 @@ export async function scanProjectsInDirectory(
   try {
     const entries = await readdir(directoryPath);
 
+    // Deeper levels are covered by their parent's listing below
+    if (currentDepth === 0) {
+      projects.push(...findWorkspaceProjects(directoryPath, entries, parentDirectory));
+    }
+
     for (const entry of entries) {
       if (entry.startsWith(".")) continue;
 
@@ -59,7 +82,12 @@ export async function scanProjectsInDirectory(
         const stats = await stat(fullPath);
 
         if (stats.isDirectory()) {
-          if (await isProjectDirectory(fullPath)) {
+          const children = await readdir(fullPath);
+
+          // Include workspace files even inside projects, since projects are not scanned further
+          projects.push(...findWorkspaceProjects(fullPath, children, parentDirectory));
+
+          if (isProjectDirectory(children)) {
             projects.push({
               name: entry,
               path: fullPath,
@@ -101,7 +129,9 @@ export async function scanAllProjects(directories: ProjectDirectory[]): Promise<
   }
 
   // Deduplicate
-  allProjects = allProjects.filter((project, index, self) => index === self.findIndex((p) => p.path === project.path));
+  allProjects = allProjects.filter(
+    (project, index, self) => index === self.findIndex((p) => getProjectId(p) === getProjectId(project)),
+  );
 
   return allProjects;
 }
@@ -118,7 +148,8 @@ export function searchProjects(projects: Project[], query: string): Project[] {
 
   return projects
     .filter(
-      (project) => project.name.toLowerCase().includes(searchTerm) || project.path.toLowerCase().includes(searchTerm),
+      (project) =>
+        project.name.toLowerCase().includes(searchTerm) || getProjectId(project).toLowerCase().includes(searchTerm),
     )
     .sort((a, b) => {
       // Prioritize exact name matches

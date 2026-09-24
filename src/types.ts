@@ -3,6 +3,7 @@ export interface Project {
   path: string;
   parentDirectory: string;
   templateId?: string;
+  workspaceFile?: string; // Absolute path to a .code-workspace file; path is then its containing directory.
 }
 
 export type LauncherKind = "terminal" | "editor" | "script";
